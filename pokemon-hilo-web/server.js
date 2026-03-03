@@ -13,13 +13,18 @@ const PORT = process.env.PORT || 3000;
 const HOST_KEY = process.env.HOST_KEY || "change-me";
 
 const DATA_PATH = process.env.CARDS_CSV_PATH || path.join(process.cwd(), "data", "cards.csv");
+const LOG_PATH = process.env.GAME_LOG_PATH || path.join(process.cwd(), "data", "game_logs.jsonl");
 const PUBLIC_DIR = path.join(process.cwd(), "public");
+const IMAGES_DIR = path.join(PUBLIC_DIR, "images");
+
+const TIMER_SECONDS = 8;
+const START_THRESHOLD_CAD = 40;
 
 app.use(express.json({ limit: "200kb" }));
 app.use(express.static(PUBLIC_DIR));
 
 /**
- * Cards: { id, url, setName, priceCad, imageFile? }
+ * Cards: { id, url, setName, priceCad }
  */
 let cards = [];
 
@@ -45,8 +50,7 @@ function loadCards() {
       const url = String(r.Name || r.URL || r.Url || "").trim();
       const setName = String(r.NAME || r.Set || r.set || "").trim();
       const priceCad = toCadFloat(r.CAD);
-      // Optional: allow providing a local image file name (relative to public/images)
-      const imageFile = String(r.ImageFile || r.imageFile || r.IMAGE_FILE || r.image || "").trim();
+      const imageFile = String(r.ImageFile || r.Image || r.image || "").trim();
       if (!url) return null;
       return { id: idx, url, setName, priceCad, imageFile };
     })
@@ -92,7 +96,6 @@ async function fetchCardMeta(pricechartingUrl) {
       "User-Agent":
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36",
       "Accept": "text/html,application/xhtml+xml",
-      "Accept-Language": "en-US,en;q=0.9",
     },
   });
 
@@ -103,29 +106,27 @@ async function fetchCardMeta(pricechartingUrl) {
   const html = await res.text();
   const $ = cheerio.load(html);
 
-  const ogImage =
-    $('meta[property="og:image"]').attr("content") ||
-    $('meta[name="twitter:image"]').attr("content") ||
-    $('meta[itemprop="image"]').attr("content") ||
-    $('link[rel="image_src"]').attr("href") ||
-    "";
+  const ogImage = $('meta[property="og:image"]').attr("content") || $('meta[name="twitter:image"]').attr("content") || "";
   const ogTitle = $('meta[property="og:title"]').attr("content") || $("title").text() || "";
 
-  // Normalize relative URLs
-  let imageUrl = String(ogImage).trim();
-  try {
-    if (imageUrl && imageUrl.startsWith("/")) {
-      const base = new URL(pricechartingUrl);
-      imageUrl = new URL(imageUrl, base.origin).toString();
-    }
-  } catch {
-    // ignore
-  }
+  const imageUrl = String(ogImage).trim();
   const title = String(ogTitle).trim();
 
   const meta = { imageUrl, title, fetchedAt: now };
   metaCache.set(pricechartingUrl, meta);
   return meta;
+}
+
+function ensureLogFile() {
+  const dir = path.dirname(LOG_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(LOG_PATH)) fs.writeFileSync(LOG_PATH, "", "utf8");
+}
+
+function appendGameLog(entry) {
+  // JSONL for easy append + streaming.
+  ensureLogFile();
+  fs.appendFileSync(LOG_PATH, JSON.stringify(entry) + "\n", "utf8");
 }
 
 function safeSlugTitleFromUrl(u) {
@@ -140,45 +141,75 @@ function safeSlugTitleFromUrl(u) {
   }
 }
 
-function slugFromPricechartingUrl(u) {
+function slugFromPriceChartingUrl(u) {
   try {
     const url = new URL(u);
-    const last = url.pathname.split("/").filter(Boolean).at(-1) || "card";
-    return last.replace(/[^a-zA-Z0-9_-]/g, "");
+    return (url.pathname.split("/").filter(Boolean).at(-1) || "card").trim();
   } catch {
     return "card";
   }
 }
 
-function findLocalImagePath(card) {
-  const baseName = card?.imageFile ? card.imageFile : slugFromPricechartingUrl(card?.url || "");
-  if (!baseName) return null;
-
-  // If user provided an extension already, try that first.
+function localImageSrcIfExists(card) {
+  // Priority:
+  // 1) Explicit ImageFile column
+  // 2) slug from URL
+  // Supported extensions: .jpg .jpeg .png .webp
   const candidates = [];
-  if (baseName.includes(".")) {
-    candidates.push(baseName);
-  } else {
-    candidates.push(`${baseName}.jpg`, `${baseName}.jpeg`, `${baseName}.png`, `${baseName}.webp`);
-  }
+  if (card.imageFile) candidates.push(card.imageFile);
+  const slug = slugFromPriceChartingUrl(card.url);
+  candidates.push(`${slug}.jpg`, `${slug}.jpeg`, `${slug}.png`, `${slug}.webp`);
 
-  for (const f of candidates) {
-    const p = path.join(PUBLIC_DIR, "images", f);
-    if (fs.existsSync(p) && fs.statSync(p).isFile()) return p;
+  for (const filename of candidates) {
+    const clean = filename.replace(/^\/+/, "");
+    const abs = path.join(IMAGES_DIR, clean);
+    if (fs.existsSync(abs)) {
+      return `/images/${encodeURIComponent(clean)}`;
+    }
   }
-  return null;
+  return "";
 }
 
 async function cardForClient(card) {
-  const meta = await fetchCardMeta(card.url).catch(() => ({ imageUrl: "", title: "" }));
+  const local = localImageSrcIfExists(card);
+  const meta = local ? { imageUrl: "", title: "" } : await fetchCardMeta(card.url).catch(() => ({ imageUrl: "", title: "" }));
   const title = meta.title || safeSlugTitleFromUrl(card.url);
   return {
     id: card.id,
     url: card.url, // safe to show (doesn't reveal price)
     setName: card.setName,
     title,
-    imageSrc: `/api/image?id=${encodeURIComponent(card.id)}`,
+    imageSrc: local || `/api/image?u=${encodeURIComponent(card.url)}`,
   };
+}
+
+function promptForPhase(phase) {
+  if (phase === "first") return `Is this card more or less than $${START_THRESHOLD_CAD} (CAD)?`;
+  return "Will the NEXT card be more or less expensive than this card?";
+}
+
+function hostPayloadForSession(session) {
+  const current = cards[session.currentCardId];
+  const host = {
+    currentPriceCad: current?.priceCad ?? null,
+    deckRemaining: session.deck?.length ?? null,
+  };
+  if (session.phase === "first") {
+    const p = current?.priceCad;
+    host.startThresholdCad = START_THRESHOLD_CAD;
+    host.correctAnswer =
+      p > START_THRESHOLD_CAD ? "more" : p < START_THRESHOLD_CAD ? "less" : "tie (loss)";
+  } else if (session.phase === "predict") {
+    const next = session.nextCardId != null ? cards[session.nextCardId] : null;
+    host.nextPriceCad = next?.priceCad ?? null;
+    host.correctNext =
+      next?.priceCad > current?.priceCad
+        ? "more"
+        : next?.priceCad < current?.priceCad
+          ? "less"
+          : "tie (loss)";
+  }
+  return host;
 }
 
 // ================== API ==================
@@ -187,11 +218,43 @@ app.get("/api/info", (req, res) => {
   res.json({
     cards: cards.length,
     currency: "CAD",
-    timerSeconds: 8,
-    startThresholdCad: 40,
+    timerSeconds: TIMER_SECONDS,
+    startThresholdCad: START_THRESHOLD_CAD,
     rounding: "1 decimal",
     hostEnabled: true,
   });
+});
+
+app.get("/api/session/:sessionId", async (req, res) => {
+  const { sessionId } = req.params;
+  const session = sessions.get(sessionId);
+  if (!session) return res.status(404).json({ error: "Session not found." });
+
+  const current = cards[session.currentCardId];
+  if (!current) return res.status(500).json({ error: "Current card missing." });
+
+  const payload = {
+    sessionId: session.id,
+    streak: session.streak,
+    phase: session.phase,
+    prompt: promptForPhase(session.phase),
+    currentCard: await cardForClient(current),
+    updatedAt: session.updatedAt,
+  };
+
+  if (isHost(req)) {
+    const host = hostPayloadForSession(session);
+    if (session.phase === "predict" && session.nextCardId != null) {
+      const next = cards[session.nextCardId];
+      if (next) {
+        const nextClient = await cardForClient(next);
+        host.nextTitle = nextClient.title;
+      }
+    }
+    payload.host = host;
+  }
+
+  res.json(payload);
 });
 
 app.post("/api/reload", (req, res) => {
@@ -216,11 +279,13 @@ app.post("/api/start", async (req, res) => {
   const session = {
     id: sessionId,
     createdAt: Date.now(),
+    updatedAt: Date.now(),
     streak: 0,
     phase: "first", // "first" or "predict"
     deck,
     currentCardId: current.id,
     nextCardId: null, // set after first win and between rounds
+    steps: [],
   };
 
   sessions.set(sessionId, session);
@@ -231,8 +296,9 @@ app.post("/api/start", async (req, res) => {
     sessionId,
     streak: session.streak,
     phase: session.phase,
-    prompt: "Is this card more or less than $40 (CAD)?",
+    prompt: promptForPhase(session.phase),
     currentCard: currentClient,
+    updatedAt: session.updatedAt,
     // Next card is hidden in client view
   };
 
@@ -240,8 +306,13 @@ app.post("/api/start", async (req, res) => {
     const currentPrice = current.priceCad;
     payload.host = {
       currentPriceCad: currentPrice,
-      startThresholdCad: 40,
-      correctAnswer: currentPrice > 40 ? "more" : currentPrice < 40 ? "less" : "tie (loss)",
+      startThresholdCad: START_THRESHOLD_CAD,
+      correctAnswer:
+        currentPrice > START_THRESHOLD_CAD
+          ? "more"
+          : currentPrice < START_THRESHOLD_CAD
+            ? "less"
+            : "tie (loss)",
       setName: current.setName,
     };
   }
@@ -263,38 +334,81 @@ app.post("/api/guess", async (req, res) => {
   const current = cards[session.currentCardId];
   if (!current) return res.status(500).json({ error: "Current card missing." });
 
-  // Helper to finalize loss and cleanup
-  const finalizeLoss = async (extra = {}) => {
+  const endSession = async ({
+    result,
+    reason = null,
+    message = "",
+    revealedCard = null,
+    correctDirection = null,
+    hostExtra = null,
+  }) => {
+    const endedAt = Date.now();
+
+    // Build log entry
+    const entry = {
+      sessionId: session.id,
+      startedAt: new Date(session.createdAt).toISOString(),
+      endedAt: new Date(endedAt).toISOString(),
+      result,
+      reason,
+      streak: session.streak,
+      steps: session.steps,
+      cardsInPool: cards.length,
+    };
+    appendGameLog(entry);
+
     sessions.delete(sessionId);
-    res.json({
+
+    const payload = {
       result: "lose",
+      reason,
+      message,
       streak: session.streak,
       phase: session.phase,
-      ...extra,
-    });
+      ...(revealedCard ? { revealedCard } : {}),
+      ...(correctDirection ? { correctDirection } : {}),
+    };
+
+    if (isHost(req)) {
+      payload.host = hostExtra || hostPayloadForSession(session);
+    }
+
+    res.json(payload);
   };
 
   // FIRST ROUND: current card vs fixed $40
   if (session.phase === "first") {
     const price = current.priceCad;
-    const correct = price > 40 ? "more" : price < 40 ? "less" : "tie"; // tie = loss
+    const correct = price > START_THRESHOLD_CAD ? "more" : price < START_THRESHOLD_CAD ? "less" : "tie"; // tie = loss
     const win = correct !== "tie" && normalizedGuess === correct;
+
+    session.updatedAt = Date.now();
+    session.steps.push({
+      ts: new Date(session.updatedAt).toISOString(),
+      phase: "first",
+      thresholdCad: START_THRESHOLD_CAD,
+      cardId: current.id,
+      priceCad: price,
+      guess: normalizedGuess,
+      correct: correct === "tie" ? "tie" : correct,
+      win,
+    });
 
     if (!win) {
       const currentClient = await cardForClient(current);
-      const extra = {
+      return endSession({
+        result: "lose",
+        reason: correct === "tie" ? "tie" : "wrong",
+        message:
+          correct === "tie" ? `It was exactly $${START_THRESHOLD_CAD.toFixed(1)} — ties are a loss.` : "Wrong guess.",
         revealedCard: currentClient,
-        message: correct === "tie" ? "It was exactly $40.0 — ties are a loss." : "Wrong guess.",
         correctDirection: correct === "tie" ? "tie" : correct,
-      };
-      if (isHost(req)) {
-        extra.host = {
+        hostExtra: {
           currentPriceCad: price,
-          startThresholdCad: 40,
+          startThresholdCad: START_THRESHOLD_CAD,
           correctAnswer: correct === "tie" ? "tie (loss)" : correct,
-        };
-      }
-      return finalizeLoss(extra);
+        },
+      });
     }
 
     // Win: move to predict mode. Preselect the next hidden card.
@@ -304,6 +418,16 @@ app.post("/api/guess", async (req, res) => {
     if (!next) {
       // If you somehow run out, treat as win and end.
       sessions.delete(sessionId);
+      appendGameLog({
+        sessionId: session.id,
+        startedAt: new Date(session.createdAt).toISOString(),
+        endedAt: new Date(Date.now()).toISOString(),
+        result: "complete",
+        reason: "deck_empty",
+        streak: session.streak,
+        steps: session.steps,
+        cardsInPool: cards.length,
+      });
       return res.json({
         result: "win",
         streak: session.streak,
@@ -319,7 +443,7 @@ app.post("/api/guess", async (req, res) => {
       streak: session.streak,
       phase: session.phase,
       message: "Correct!",
-      prompt: "Will the NEXT card be more or less expensive than this card?",
+      prompt: promptForPhase(session.phase),
       currentCard: await cardForClient(current),
       // next card remains hidden
     };
@@ -348,22 +472,34 @@ app.post("/api/guess", async (req, res) => {
     const correct = next.priceCad > current.priceCad ? "more" : next.priceCad < current.priceCad ? "less" : "tie";
     const win = correct !== "tie" && normalizedGuess === correct;
 
+    session.updatedAt = Date.now();
+    session.steps.push({
+      ts: new Date(session.updatedAt).toISOString(),
+      phase: "predict",
+      currentCardId: current.id,
+      currentPriceCad: current.priceCad,
+      nextCardId: next.id,
+      nextPriceCad: next.priceCad,
+      guess: normalizedGuess,
+      correct: correct === "tie" ? "tie" : correct,
+      win,
+    });
+
     const revealedNextClient = await cardForClient(next);
 
     if (!win) {
-      const extra = {
-        revealedCard: revealedNextClient,
+      return endSession({
+        result: "lose",
+        reason: correct === "tie" ? "tie" : "wrong",
         message: correct === "tie" ? "Tie — ties are a loss." : "Wrong guess.",
+        revealedCard: revealedNextClient,
         correctDirection: correct === "tie" ? "tie" : correct,
-      };
-      if (isHost(req)) {
-        extra.host = {
+        hostExtra: {
           currentPriceCad: current.priceCad,
           nextPriceCad: next.priceCad,
           correctAnswer: correct === "tie" ? "tie (loss)" : correct,
-        };
-      }
-      return finalizeLoss(extra);
+        },
+      });
     }
 
     // Win: promote next to current, pick new hidden next
@@ -373,6 +509,16 @@ app.post("/api/guess", async (req, res) => {
     const newNext = pickCardFromDeck(session);
     if (!newNext) {
       sessions.delete(sessionId);
+      appendGameLog({
+        sessionId: session.id,
+        startedAt: new Date(session.createdAt).toISOString(),
+        endedAt: new Date(Date.now()).toISOString(),
+        result: "complete",
+        reason: "deck_cleared",
+        streak: session.streak,
+        steps: session.steps,
+        cardsInPool: cards.length,
+      });
       const payload = {
         result: "win",
         streak: session.streak,
@@ -393,7 +539,7 @@ app.post("/api/guess", async (req, res) => {
       streak: session.streak,
       phase: session.phase,
       message: "Correct!",
-      prompt: "Will the NEXT card be more or less expensive than this card?",
+      prompt: promptForPhase(session.phase),
       currentCard: revealedNextClient,
     };
 
@@ -445,63 +591,76 @@ app.post("/api/timeout", async (req, res) => {
     };
   }
 
+  // Log timeout as an end-of-session
+  session.updatedAt = Date.now();
+  session.steps.push({
+    ts: new Date(session.updatedAt).toISOString(),
+    phase: session.phase,
+    reason: "timeout",
+  });
+
+  appendGameLog({
+    sessionId: session.id,
+    startedAt: new Date(session.createdAt).toISOString(),
+    endedAt: new Date(Date.now()).toISOString(),
+    result: "lose",
+    reason: "timeout",
+    streak: session.streak,
+    steps: session.steps,
+    cardsInPool: cards.length,
+  });
+
   sessions.delete(sessionId);
   res.json(payload);
 });
 
+app.get("/api/logs", (req, res) => {
+  if (!isHost(req)) return res.status(403).json({ error: "Forbidden" });
+
+  const limit = Math.max(1, Math.min(500, Number(req.query.limit || 50)));
+  ensureLogFile();
+  const raw = fs.readFileSync(LOG_PATH, "utf8");
+  const lines = raw.split("\n").filter(Boolean);
+  const sliced = lines.slice(-limit);
+  const logs = [];
+  for (const line of sliced) {
+    try {
+      logs.push(JSON.parse(line));
+    } catch {
+      // ignore
+    }
+  }
+  res.json({ logs: logs.reverse() });
+});
+
+app.get("/api/logs/download", (req, res) => {
+  if (!isHost(req)) return res.status(403).send("Forbidden");
+  ensureLogFile();
+  res.setHeader("Content-Type", "application/jsonl; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=game_logs.jsonl");
+  fs.createReadStream(LOG_PATH).pipe(res);
+});
+
 app.get("/api/image", async (req, res) => {
-  // Preferred: serve a local image from public/images (most reliable)
-  // Fallback: fetch from PriceCharting and proxy bytes
-  const idStr = String(req.query.id || "").trim();
-  const u = String(req.query.u || "").trim(); // backward compatible
+  const u = String(req.query.u || "").trim();
+  if (!u) return res.status(400).send("Missing u");
 
-  let card = null;
-  let pricechartingUrl = u;
-
-  if (idStr) {
-    const id = Number(idStr);
-    if (Number.isFinite(id)) {
-      card = cards[id];
-      if (card) pricechartingUrl = card.url;
-    }
-  }
-
-  if (!pricechartingUrl && !card) return res.status(400).send("Missing id (or u)");
-  if (!card && pricechartingUrl) {
-    // Create a pseudo card object for slugging
-    card = { url: pricechartingUrl, imageFile: "" };
-  }
-
-  // 1) Try local first
-  const localPath = findLocalImagePath(card);
-  if (localPath) {
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    return res.sendFile(localPath);
-  }
-
-  // 2) Fallback to PriceCharting
+  // Resolve to actual image URL, then proxy bytes (more reliable than hotlinking).
   try {
-    const meta = await fetchCardMeta(pricechartingUrl);
-    if (!meta.imageUrl) {
-      return res
-        .status(404)
-        .send(
-          "No image found. If PriceCharting blocks scraping, add a local image under public/images named after the URL slug (e.g. serperior-ex-164.jpg)."
-        );
-    }
+    const meta = await fetchCardMeta(u);
+    if (!meta.imageUrl) return res.status(404).send("No image found");
 
     const imgRes = await fetch(meta.imageUrl, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36",
         "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        // Some CDNs require a referer to allow image loads.
-        "Referer": pricechartingUrl,
+        // Some CDNs require a referer.
+        "Referer": "https://www.pricecharting.com/",
       },
     });
 
-    if (!imgRes.ok) return res.status(502).send(`Image fetch failed (${imgRes.status})`);
+    if (!imgRes.ok) return res.status(502).send("Image fetch failed");
     const ct = imgRes.headers.get("content-type") || "image/jpeg";
     res.setHeader("Content-Type", ct);
     res.setHeader("Cache-Control", "public, max-age=86400"); // 1 day cache

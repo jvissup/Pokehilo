@@ -35,8 +35,19 @@ body{
 .ghost{
   padding:8px 10px; border-radius:12px; background:transparent; color:var(--text);
   border:1px solid var(--border); cursor:pointer;
+  text-decoration:none;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
 }
 .ghost:hover{border-color:rgba(255,255,255,.25);}
+
+.input{
+  cursor:text;
+  min-width: 120px;
+  outline:none;
+}
+.input:focus{border-color:rgba(124,58,237,.65); box-shadow:0 0 0 3px rgba(124,58,237,.20)}
 
 .main{
   display:grid;
@@ -179,10 +190,45 @@ body{
 .hostRow span:last-child{font-weight:900; text-align:right;}
 .hostNote{margin-top:10px; font-size:12px; color:rgba(255,255,255,.7);}
 
+/* Host page panels */
+.wide{margin-top:18px;}
+.panel{
+  background: linear-gradient(180deg, rgba(255,255,255,.06), transparent 40%), var(--card);
+  border:1px solid var(--border);
+  border-radius:22px;
+  padding:16px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.18);
+}
+.panelHeader{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;}
+.panelTitle{font-weight:900; font-size:16px;}
+.panelActions{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+
+.tableWrap{overflow:auto; border-radius:16px; border:1px solid rgba(255,255,255,.10);}
+.table{width:100%; border-collapse:collapse; font-size:13px;}
+.table th, .table td{padding:10px 10px; border-bottom:1px solid rgba(255,255,255,.08); text-align:left;}
+.table thead th{color:rgba(255,255,255,.80); font-weight:900; background:rgba(0,0,0,.14);}
+.table tbody tr:hover{background:rgba(255,255,255,.04);}
+
+.grid2{display:grid; grid-template-columns: 1fr 1.25fr; gap:16px;}
+.formRow{display:flex; flex-direction:column; gap:6px; margin-bottom:10px;}
+.formRow label{font-size:12px; color:rgba(255,255,255,.72); font-weight:800;}
+
+.kv{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,.08);}
+.kv .k{color:var(--muted); font-size:12px; font-weight:800;}
+.kv .v{font-weight:900; font-variant-numeric: tabular-nums; text-align:right;}
+
+.mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+.hostBig{font-weight:900; font-size:13px; color:rgba(255,255,255,.85); word-break:break-all;}
+.hostSmall{font-size:12px; color:rgba(255,255,255,.70); text-align:center;}
+
 @media (max-width: 980px){
   .main{grid-template-columns:1fr;}
   .cardArea{grid-template-columns:1fr;}
   .nextCardFrame{display:none;}
   .ui{min-height:auto;}
   .cardFrame{min-height:420px;}
+}
+
+@media (max-width: 980px){
+  .grid2{grid-template-columns:1fr;}
 }

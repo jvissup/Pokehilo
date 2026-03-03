@@ -6,8 +6,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
-    "expected-images": "node scripts/expected-images.js"
+    "dev": "node server.js"
   },
   "engines": {
     "node": ">=18"
