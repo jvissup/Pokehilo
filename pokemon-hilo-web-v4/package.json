@@ -12,8 +12,6 @@
     "node": ">=18"
   },
   "dependencies": {
-    "cheerio": "^1.0.0-rc.12",
-    "csv-parse": "^5.5.3",
     "express": "^4.19.2"
   },
   "type": "module"

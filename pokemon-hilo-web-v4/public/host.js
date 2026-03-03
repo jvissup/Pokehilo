@@ -18,25 +18,8 @@ const els = {
   hostCorrect: $("hostCorrect"),
   hostPrevTitle: $("hostPrevTitle"),
   hostDeck: $("hostDeck"),
-
-  refreshLogsBtn: $("refreshLogsBtn"),
-  downloadLogsBtn: $("downloadLogsBtn"),
-  logsTable: $("logsTable"),
-
-  evEntry: $("evEntry"),
-  evMargin: $("evMargin"),
-  evP1: $("evP1"),
-  evP: $("evP"),
-  evTrials: $("evTrials"),
-  runSimBtn: $("runSimBtn"),
-  evOut: $("evOut"),
-
-  tiersTable: $("tiersTable"),
-  addTierBtn: $("addTierBtn"),
-  resetTiersBtn: $("resetTiersBtn"),
 };
 
-// No host key required. Host mode is simply this page.
 let sessionId = null;
 let poller = null;
 let lastUpdatedAt = 0;
@@ -66,10 +49,7 @@ function setHostPanel(host, prevCard) {
 
 async function api(path, body = null, method = null) {
   const headers = { "Content-Type": "application/json" };
-
-  // Mark host calls so the server includes price fields.
   const url = path.includes("?") ? `${path}&host=1` : `${path}?host=1`;
-
   const res = await fetch(url, {
     method: method || (body ? "POST" : "GET"),
     headers,
@@ -100,11 +80,9 @@ function startPolling() {
       els.sessionMeta.textContent = `Streak: ${s.streak} • Phase: ${s.phase}`;
       setHostPanel(s.host, s.previousCard);
     } catch (e) {
-      // Session ended (or host key invalid)
       els.sessionMeta.textContent = "Not active";
-      setStatus("Session ended. Refresh logs to see results.", "bad");
+      setStatus("Session ended.", "bad");
       stopPolling();
-      await refreshLogs();
     }
   }, 500);
 }
@@ -127,166 +105,8 @@ async function startAndAnnounce() {
   setHostPanel(data.host, data.previousCard);
 
   broadcastStart(sessionId);
-  setStatus(`Announced session ${sessionId} to player tab.`, "good");
+  setStatus(`Announced session to player tab.`, "good");
   startPolling();
-}
-
-function fmtTime(iso) {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString();
-  } catch {
-    return iso;
-  }
-}
-
-async function refreshLogs() {
-  try {
-    const data = await api("/api/logs?limit=50", null, "GET");
-    const tbody = els.logsTable.querySelector("tbody");
-    tbody.innerHTML = "";
-    for (const row of data.logs || []) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${fmtTime(row.endedAt)}</td>
-        <td>${row.result}</td>
-        <td>${row.streak}</td>
-        <td>${row.reason || "—"}</td>
-        <td class="mono">${row.sessionId}</td>
-      `;
-      tbody.appendChild(tr);
-    }
-  } catch (e) {
-    setStatus(String(e.message || e), "bad");
-  }
-}
-
-async function downloadLogs() {
-  try {
-    const res = await fetch("/api/logs/download");
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "game_logs.jsonl";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  } catch (e) {
-    setStatus(String(e.message || e), "bad");
-  }
-}
-
-// ================= EV SIM =================
-
-const DEFAULT_TIERS = [
-  { min: 0, max: 3, prize: "Chinese Pack + Coupon", cost: 5 },
-  { min: 4, max: 6, prize: "Chinese Pack x2", cost: 6 },
-  { min: 7, max: 11, prize: "English Pack 1", cost: 8 },
-  { min: 12, max: 17, prize: "Japanese Pack 2", cost: 10 },
-  { min: 18, max: null, prize: "English Tin", cost: 19 },
-];
-
-function renderTiers(tiers) {
-  const tbody = els.tiersTable.querySelector("tbody");
-  tbody.innerHTML = "";
-  tiers.forEach((t, idx) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><input class="ghost input" data-k="min" data-i="${idx}" type="number" step="1" value="${t.min}" /></td>
-      <td><input class="ghost input" data-k="max" data-i="${idx}" type="number" step="1" value="${t.max ?? ""}" placeholder="∞" /></td>
-      <td><input class="ghost input" data-k="prize" data-i="${idx}" type="text" value="${t.prize}" /></td>
-      <td><input class="ghost input" data-k="cost" data-i="${idx}" type="number" step="0.01" value="${t.cost}" /></td>
-      <td><button class="ghost" data-action="del" data-i="${idx}">✕</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
-function readTiersFromUI() {
-  const rows = [...els.tiersTable.querySelectorAll("tbody tr")];
-  const tiers = [];
-  for (const r of rows) {
-    const inputs = r.querySelectorAll("input");
-    const get = (k) => [...inputs].find((x) => x.dataset.k === k)?.value ?? "";
-    const min = Number(get("min"));
-    const maxRaw = String(get("max") || "").trim();
-    const max = maxRaw === "" ? null : Number(maxRaw);
-    const prize = String(get("prize") || "").trim() || "Tier";
-    const cost = Number(get("cost"));
-    if (!Number.isFinite(min) || !Number.isFinite(cost)) continue;
-    tiers.push({ min, max: Number.isFinite(max) ? max : null, prize, cost });
-  }
-  tiers.sort((a, b) => a.min - b.min);
-  return tiers;
-}
-
-function tierForStreak(tiers, streak) {
-  for (const t of tiers) {
-    const okMin = streak >= t.min;
-    const okMax = t.max == null ? true : streak <= t.max;
-    if (okMin && okMax) return t;
-  }
-  return tiers[tiers.length - 1] || { cost: 0, prize: "—" };
-}
-
-function simulate({ p1, p, trials, tiers, maxRounds = 500 }) {
-  let totalCost = 0;
-  const streaks = [];
-  for (let i = 0; i < trials; i++) {
-    let s = 0;
-    // first guess
-    if (Math.random() < p1) s++;
-    else {
-      streaks.push(s);
-      totalCost += tierForStreak(tiers, s).cost;
-      continue;
-    }
-    // next guesses
-    while (s < maxRounds && Math.random() < p) s++;
-    streaks.push(s);
-    totalCost += tierForStreak(tiers, s).cost;
-  }
-  const avgCost = totalCost / trials;
-  streaks.sort((a, b) => a - b);
-  const pct = (q) => streaks[Math.floor(q * (streaks.length - 1))] ?? 0;
-  return {
-    avgCost,
-    p50: pct(0.5),
-    p90: pct(0.9),
-    p99: pct(0.99),
-  };
-}
-
-function runEvSim() {
-  const entry = Number(els.evEntry.value || 10);
-  const margin = Number(els.evMargin.value || 0.4);
-  const p1 = Math.max(0, Math.min(1, Number(els.evP1.value || 0.65)));
-  const p = Math.max(0, Math.min(1, Number(els.evP.value || 0.7)));
-  const trials = Math.max(1000, Math.min(500000, Number(els.evTrials.value || 50000)));
-  const tiers = readTiersFromUI();
-
-  if (!tiers.length) {
-    els.evOut.textContent = "Add at least one tier.";
-    return;
-  }
-  const r = simulate({ p1, p, trials, tiers });
-
-  const reqEntry = r.avgCost / Math.max(0.0001, 1 - margin);
-  const actualMargin = entry <= 0 ? 0 : (entry - r.avgCost) / entry;
-
-  els.evOut.textContent = [
-    `Simulations: ${trials.toLocaleString()}`,
-    `p(first): ${(p1 * 100).toFixed(1)}% • p(next): ${(p * 100).toFixed(1)}%`,
-    "",
-    `Expected prize cost: $${r.avgCost.toFixed(2)}`,
-    `Margin at $${entry.toFixed(2)} entry: ${(actualMargin * 100).toFixed(1)}%`,
-    `Entry needed for ${(margin * 100).toFixed(0)}% margin: $${reqEntry.toFixed(2)}`,
-    "",
-    `Streak percentiles (wins): p50=${r.p50} • p90=${r.p90} • p99=${r.p99}`,
-  ].join("\n");
 }
 
 // ================= EVENTS =================
@@ -299,42 +119,13 @@ els.startBtn.addEventListener("click", () => {
   startAndAnnounce().catch((e) => setStatus(String(e.message || e), "bad"));
 });
 
-els.refreshLogsBtn.addEventListener("click", () => refreshLogs());
-els.downloadLogsBtn.addEventListener("click", (e) => {
-  e.preventDefault();
-  downloadLogs();
-});
-
-els.runSimBtn.addEventListener("click", () => runEvSim());
-
-els.addTierBtn.addEventListener("click", () => {
-  const tiers = readTiersFromUI();
-  tiers.push({ min: 0, max: null, prize: "New tier", cost: 0 });
-  renderTiers(tiers);
-});
-
-els.resetTiersBtn.addEventListener("click", () => {
-  renderTiers(structuredClone(DEFAULT_TIERS));
-});
-
-els.tiersTable.addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-action='del']");
-  if (!btn) return;
-  const idx = Number(btn.dataset.i);
-  const tiers = readTiersFromUI();
-  tiers.splice(idx, 1);
-  renderTiers(tiers);
-});
-
 (async function init() {
-  renderTiers(structuredClone(DEFAULT_TIERS));
   setHostPanel(null, null);
 
   bc = new BroadcastChannel("pokemon-hilo-control");
   bc.onmessage = async (ev) => {
     const msg = ev.data || {};
     if (msg.type === "start" && msg.sessionId) {
-      // Player started locally. Attach host view to that session.
       sessionId = msg.sessionId;
       try {
         const s = await api(`/api/session/${encodeURIComponent(sessionId)}`);
@@ -344,7 +135,7 @@ els.tiersTable.addEventListener("click", (e) => {
         els.sessionIdText.textContent = sessionId;
         els.sessionMeta.textContent = `Streak: ${s.streak} • Phase: ${s.phase}`;
         setHostPanel(s.host, s.previousCard);
-        setStatus(`Attached to player-started session ${sessionId}.`, "good");
+        setStatus(`Attached to player-started session.`, "good");
         startPolling();
       } catch (e) {
         setStatus(String(e.message || e), "bad");
@@ -352,7 +143,6 @@ els.tiersTable.addEventListener("click", (e) => {
       return;
     }
     if (msg.type === "update" && msg.sessionId && msg.sessionId === sessionId) {
-      // opportunistic refresh to feel real-time
       try {
         const s = await api(`/api/session/${encodeURIComponent(sessionId)}`);
         lastUpdatedAt = s.updatedAt || lastUpdatedAt;
@@ -361,12 +151,8 @@ els.tiersTable.addEventListener("click", (e) => {
         els.sessionMeta.textContent = `Streak: ${s.streak} • Phase: ${s.phase}`;
         setHostPanel(s.host, s.previousCard);
       } catch {
-        // ended
-        await refreshLogs();
+        // session ended
       }
     }
   };
-
-  // Load logs
-  await refreshLogs();
 })();
