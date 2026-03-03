@@ -1,9 +1,18 @@
 const $ = (id) => document.getElementById(id);
 
 const els = {
+  // Current card (left)
   cardImg: $("cardImg"),
   cardTitle: $("cardTitle"),
   cardSet: $("cardSet"),
+
+  // Previous card (middle)
+  prevCardFrame: $("prevCardFrame"),
+  prevCardImg: $("prevCardImg"),
+  prevCardBack: $("prevCardBack"),
+  prevCardTitle: $("prevCardTitle"),
+  prevCardSet: $("prevCardSet"),
+
   prompt: $("prompt"),
   status: $("status"),
   streakPill: $("streakPill"),
@@ -11,7 +20,6 @@ const els = {
   timerFill: $("timerFill"),
   moreBtn: $("moreBtn"),
   lessBtn: $("lessBtn"),
-  nextCardFrame: $("nextCardFrame"),
   playerHelp: $("playerHelp"),
 };
 
@@ -77,10 +85,33 @@ function startTimer() {
   }, 50);
 }
 
-function setCard(card) {
+function setCurrentCard(card) {
+  if (!card) return;
   els.cardImg.src = card.imageSrc;
   els.cardTitle.textContent = card.title || "—";
   els.cardSet.textContent = card.setName || "—";
+}
+
+function clearCurrentCard() {
+  els.cardImg.removeAttribute("src");
+  els.cardTitle.textContent = "—";
+  els.cardSet.textContent = "—";
+}
+
+function setPreviousCard(card) {
+  if (!card) {
+    els.prevCardImg.removeAttribute("src");
+    els.prevCardImg.style.display = "none";
+    els.prevCardBack.style.display = "block";
+    els.prevCardTitle.textContent = "—";
+    els.prevCardSet.textContent = "—";
+    return;
+  }
+  els.prevCardImg.src = card.imageSrc;
+  els.prevCardImg.style.display = "block";
+  els.prevCardBack.style.display = "none";
+  els.prevCardTitle.textContent = card.title || "—";
+  els.prevCardSet.textContent = card.setName || "—";
 }
 
 function setPrompt(text) {
@@ -103,6 +134,7 @@ async function api(path, body = null, method = null) {
 
 function showWaiting() {
   sessionId = null;
+  phase = "first";
   setStreak(0);
   stopTimer();
   resetTimerUIOnly();
@@ -110,10 +142,10 @@ function showWaiting() {
   setPrompt("Waiting for host…");
   setStatus("When the host starts a game, it will auto-start here.");
   els.playerHelp.hidden = false;
-  els.nextCardFrame.style.opacity = "1";
-  els.cardImg.removeAttribute("src");
-  els.cardTitle.textContent = "—";
-  els.cardSet.textContent = "—";
+  els.prevCardFrame.style.opacity = "1";
+
+  clearCurrentCard();
+  setPreviousCard(null);
 }
 
 async function joinSession(id) {
@@ -127,7 +159,9 @@ async function joinSession(id) {
   sessionId = data.sessionId;
   phase = data.phase;
   setStreak(data.streak || 0);
-  setCard(data.currentCard);
+
+  setCurrentCard(data.currentCard);
+  setPreviousCard(data.previousCard || null);
   setPrompt(data.prompt);
 
   // tiny delay so it feels like a "reveal", then unlock + start timer
@@ -147,15 +181,28 @@ async function submitGuess(guess) {
   resetTimerUIOnly();
 
   const data = await api("/api/guess", { sessionId, guess });
+
   setStreak(data.streak ?? streak);
+  phase = data.phase || phase;
 
   // Let host tab know something happened (no prices).
-  bc?.postMessage({ type: "update", sessionId, streak: data.streak ?? streak, result: data.result, reason: data.reason || null });
+  bc?.postMessage({
+    type: "update",
+    sessionId,
+    streak: data.streak ?? streak,
+    result: data.result,
+    reason: data.reason || null,
+  });
+
+  // Always update cards if provided
+  if (data.currentCard) setCurrentCard(data.currentCard);
+  if (Object.prototype.hasOwnProperty.call(data, "previousCard")) {
+    setPreviousCard(data.previousCard);
+  }
 
   if (data.result === "lose") {
-    if (data.revealedCard) setCard(data.revealedCard);
     setPrompt("Game over");
-    els.nextCardFrame.style.opacity = "0.35";
+    els.prevCardFrame.style.opacity = "0.55";
 
     const msg = [
       data.message || "Wrong.",
@@ -172,10 +219,11 @@ async function submitGuess(guess) {
   }
 
   // Win path
-  if (data.currentCard) setCard(data.currentCard);
-  if (data.revealedCard) setCard(data.revealedCard);
   setPrompt(data.prompt || "Next round");
   setStatus("Correct! 🔥", "good");
+  els.prevCardFrame.style.opacity = "1";
+
+  // Reset timer when player wins, then again when the next card is shown.
   resetTimerUIOnly();
 
   setTimeout(() => {
@@ -191,10 +239,16 @@ async function handleTimeout() {
   try {
     const data = await api("/api/timeout", { sessionId });
     setStreak(data.streak ?? streak);
-    if (data.revealedCard) setCard(data.revealedCard);
+
+    if (data.currentCard) setCurrentCard(data.currentCard);
+    if (Object.prototype.hasOwnProperty.call(data, "previousCard")) {
+      setPreviousCard(data.previousCard);
+    }
+
     setPrompt("Game over");
-    els.nextCardFrame.style.opacity = "0.35";
+    els.prevCardFrame.style.opacity = "0.55";
     setStatus(`Time's up!\nYou got ${data.streak ?? streak} right before you lost.`, "bad");
+
     bc?.postMessage({ type: "update", sessionId, streak: data.streak ?? streak, result: "lose", reason: "timeout" });
     setTimeout(() => showWaiting(), 2500);
   } catch (e) {

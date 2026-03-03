@@ -21,17 +21,26 @@
 
       <main class="main">
         <section class="cardArea">
+          <!-- Current card (left, larger) -->
           <div class="cardFrame">
-            <img id="cardImg" alt="Card image" />
+            <img id="cardImg" alt="Current card image" />
             <div class="cardMeta">
               <div class="cardTitle" id="cardTitle">—</div>
               <div class="cardSet" id="cardSet">—</div>
             </div>
           </div>
 
-          <div class="nextCardFrame" id="nextCardFrame" aria-hidden="true">
-            <div class="nextLabel">Next card</div>
-            <div class="cardBack"></div>
+          <!-- Previous card (middle, smaller) -->
+          <div class="nextCardFrame" id="prevCardFrame" aria-hidden="true">
+            <div class="nextLabel">Previous card</div>
+            <div class="sideCard" aria-hidden="true">
+              <img id="prevCardImg" alt="Previous card image" />
+              <div class="cardBack" id="prevCardBack"></div>
+            </div>
+            <div class="sideMeta">
+              <div class="sideTitle" id="prevCardTitle">—</div>
+              <div class="sideSet" id="prevCardSet">—</div>
+            </div>
           </div>
         </section>
 

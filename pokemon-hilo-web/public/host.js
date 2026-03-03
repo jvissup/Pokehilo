@@ -16,9 +16,9 @@ const els = {
   sessionMeta: $("sessionMeta"),
 
   hostCurrent: $("hostCurrent"),
-  hostNext: $("hostNext"),
+  hostPrev: $("hostPrev"),
   hostCorrect: $("hostCorrect"),
-  hostNextTitle: $("hostNextTitle"),
+  hostPrevTitle: $("hostPrevTitle"),
   hostDeck: $("hostDeck"),
 
   refreshLogsBtn: $("refreshLogsBtn"),
@@ -59,11 +59,11 @@ function setCard(card) {
   els.cardSet.textContent = card.setName || "—";
 }
 
-function setHostPanel(host) {
+function setHostPanel(host, prevCard) {
+  els.hostPrev.textContent = host?.prevPriceCad != null ? `$${Number(host.prevPriceCad).toFixed(1)}` : "—";
   els.hostCurrent.textContent = host?.currentPriceCad != null ? `$${Number(host.currentPriceCad).toFixed(1)}` : "—";
-  els.hostNext.textContent = host?.nextPriceCad != null ? `$${Number(host.nextPriceCad).toFixed(1)}` : "—";
-  els.hostCorrect.textContent = host?.correctNext || host?.correctAnswer || "—";
-  els.hostNextTitle.textContent = host?.nextTitle || "—";
+  els.hostCorrect.textContent = host?.correctAnswer || "—";
+  els.hostPrevTitle.textContent = prevCard?.title || "—";
   els.hostDeck.textContent = host?.deckRemaining != null ? String(host.deckRemaining) : "—";
 }
 
@@ -99,7 +99,7 @@ function startPolling() {
       els.prompt.textContent = s.prompt || "—";
       els.sessionIdText.textContent = sessionId;
       els.sessionMeta.textContent = `Streak: ${s.streak} • Phase: ${s.phase}`;
-      setHostPanel(s.host);
+      setHostPanel(s.host, s.previousCard);
     } catch (e) {
       // Session ended (or host key invalid)
       els.sessionMeta.textContent = "Not active";
@@ -134,7 +134,7 @@ async function startAndAnnounce() {
   els.prompt.textContent = data.prompt || "—";
   els.sessionIdText.textContent = sessionId;
   els.sessionMeta.textContent = `Streak: ${data.streak} • Phase: ${data.phase}`;
-  setHostPanel(data.host);
+  setHostPanel(data.host, data.previousCard);
 
   broadcastStart(sessionId);
   setStatus(`Announced session ${sessionId} to player tab.`, "good");
@@ -351,7 +351,7 @@ els.tiersTable.addEventListener("click", (e) => {
 (async function init() {
   els.hostKeyInput.value = hostKey;
   renderTiers(structuredClone(DEFAULT_TIERS));
-  setHostPanel(null);
+  setHostPanel(null, null);
 
   bc = new BroadcastChannel("pokemon-hilo-control");
   bc.onmessage = async (ev) => {
@@ -364,7 +364,7 @@ els.tiersTable.addEventListener("click", (e) => {
         setCard(s.currentCard);
         els.prompt.textContent = s.prompt || "—";
         els.sessionMeta.textContent = `Streak: ${s.streak} • Phase: ${s.phase}`;
-        setHostPanel(s.host);
+        setHostPanel(s.host, s.previousCard);
       } catch {
         // ended
         await refreshLogs();
