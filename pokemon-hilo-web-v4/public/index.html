@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pokémon Hi-Lo • Player</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="header">
+        <div>
+          <div class="title">Pokémon Hi‑Lo</div>
+          <div class="subtitle">Player view • 8‑second timer • prices hidden</div>
+        </div>
+        <div class="headerRight">
+          <div class="pill" id="streakPill">Streak: 0</div>
+          <a class="ghost" href="/host.html" target="_blank" rel="noopener">Open host</a>
+        </div>
+      </header>
+
+      <main class="main">
+        <section class="cardArea">
+          <!-- Current card (left, larger) -->
+          <div class="cardFrame">
+            <img id="cardImg" alt="Current card image" />
+            <div class="cardMeta">
+              <div class="cardTitle" id="cardTitle">—</div>
+              <div class="cardSet" id="cardSet">—</div>
+            </div>
+          </div>
+
+          <!-- Previous card (middle, smaller) -->
+          <div class="nextCardFrame" id="prevCardFrame" aria-hidden="true">
+            <div class="nextLabel">Previous card</div>
+            <div class="sideCard" aria-hidden="true">
+              <img id="prevCardImg" alt="Previous card image" />
+              <div class="cardBack" id="prevCardBack"></div>
+            </div>
+            <div class="sideMeta">
+              <div class="sideTitle" id="prevCardTitle">—</div>
+              <div class="sideSet" id="prevCardSet">—</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ui">
+          <div class="prompt" id="prompt">Loading…</div>
+
+          <div class="timerRow">
+            <div class="timerBar">
+              <div class="timerFill" id="timerFill"></div>
+            </div>
+            <div class="timerNum" id="timerNum">8.0</div>
+          </div>
+
+          <div class="buttons">
+            <button class="btn primary" id="moreBtn">More</button>
+            <button class="btn primary" id="lessBtn">Less</button>
+          </div>
+
+          <div class="status" id="status"></div>
+        </section>
+      </main>
+
+      <aside class="hostPanel" id="playerHelp" hidden>
+        <div class="hostTitle">Ready</div>
+        <div class="hostNote">Start here, or let the host start + announce from <b>/host.html</b>.</div>
+        <div style="display:flex; gap:10px; margin-top:12px;">
+          <button class="btn" id="playerStartBtn">Start game</button>
+          <button class="ghost" id="playerResetBtn">Reset</button>
+        </div>
+      </aside>
+    </div>
+
+    <script src="/player.js" type="module"></script>
+  </body>
+</html>
