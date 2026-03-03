@@ -1,0 +1,2 @@
+{"sessionId":"26b39dda-5e2f-4bd7-ab1b-a49408f68000","startedAt":"2026-03-03T20:29:59.595Z","endedAt":"2026-03-03T20:30:08.009Z","result":"lose","reason":"timeout","streak":0,"steps":[{"ts":"2026-03-03T20:30:08.009Z","phase":"first","reason":"timeout"}],"cardsInPool":249}
+{"sessionId":"9d267dc6-f339-49b8-aed7-acb9f76d68cc","startedAt":"2026-03-03T20:30:13.019Z","endedAt":"2026-03-03T20:30:21.383Z","result":"lose","reason":"timeout","streak":0,"steps":[{"ts":"2026-03-03T20:30:21.383Z","phase":"first","reason":"timeout"}],"cardsInPool":249}
