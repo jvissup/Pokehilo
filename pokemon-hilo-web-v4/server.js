@@ -12,7 +12,10 @@ const PORT = process.env.PORT || 3000;
 // No host key is required since this is intended to be run locally by the host.
 
 const DATA_PATH = process.env.CARDS_CSV_PATH || path.join(process.cwd(), "data", "cards.csv");
-const LOG_PATH = process.env.GAME_LOG_PATH || path.join(process.cwd(), "data", "game_logs.jsonl");
+const LOG_PATH = process.env.GAME_LOG_PATH ||
+  (process.env.VERCEL
+    ? "/tmp/game_logs.jsonl"
+    : path.join(process.cwd(), "data", "game_logs.jsonl"));
 const PUBLIC_DIR = path.join(process.cwd(), "public");
 const IMAGES_DIR = path.join(PUBLIC_DIR, "images");
 
@@ -631,7 +634,11 @@ setInterval(() => {
 
 loadCards();
 
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
-  console.log('Host mode: open /host.html (no host key required).');
-});
+export default app;
+
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}`);
+    console.log('Host mode: open /host.html (no host key required).');
+  });
+}
