@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 3000;
 
 // Set this before running (recommended).
 // Example: HOST_KEY="my-secret" npm start
-const HOST_KEY = process.env.HOST_KEY || "pokemon";
+const HOST_KEY = process.env.HOST_KEY || "change-me";
 
 const DATA_PATH = process.env.CARDS_CSV_PATH || path.join(process.cwd(), "data", "cards.csv");
 const LOG_PATH = process.env.GAME_LOG_PATH || path.join(process.cwd(), "data", "game_logs.jsonl");
