@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pokémon Hi-Lo (CAD)</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="header">
+        <div>
+          <div class="title">Pokémon Hi‑Lo</div>
+          <div class="subtitle">CAD prices only • 8‑second timer • ties = loss</div>
+        </div>
+        <div class="headerRight">
+          <div class="pill" id="streakPill">Streak: 0</div>
+          <button class="ghost" id="hostBtn" title="Host mode (prices)">Host</button>
+          <button class="ghost" id="newGameBtn" title="Start a new game">New game</button>
+        </div>
+      </header>
+
+      <main class="main">
+        <section class="cardArea">
+          <div class="cardFrame">
+            <img id="cardImg" alt="Card image" />
+            <div class="cardMeta">
+              <div class="cardTitle" id="cardTitle">—</div>
+              <div class="cardSet" id="cardSet">—</div>
+            </div>
+          </div>
+
+          <div class="nextCardFrame" id="nextCardFrame" aria-hidden="true">
+            <div class="nextLabel">Next card</div>
+            <div class="cardBack"></div>
+          </div>
+        </section>
+
+        <section class="ui">
+          <div class="prompt" id="prompt">Loading…</div>
+
+          <div class="timerRow">
+            <div class="timerBar">
+              <div class="timerFill" id="timerFill"></div>
+            </div>
+            <div class="timerNum" id="timerNum">8.0</div>
+          </div>
+
+          <div class="buttons">
+            <button class="btn primary" id="moreBtn">More</button>
+            <button class="btn primary" id="lessBtn">Less</button>
+          </div>
+
+          <div class="status" id="status"></div>
+        </section>
+      </main>
+
+      <aside class="hostPanel" id="hostPanel" hidden>
+        <div class="hostTitle">Host panel</div>
+        <div class="hostRow"><span>Current (CAD)</span><span id="hostCurrent">—</span></div>
+        <div class="hostRow"><span>Next (CAD)</span><span id="hostNext">—</span></div>
+        <div class="hostRow"><span>Correct</span><span id="hostCorrect">—</span></div>
+        <div class="hostRow"><span>Next title</span><span id="hostNextTitle">—</span></div>
+        <div class="hostNote">Host-only. Prices never appear in player mode.</div>
+      </aside>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
